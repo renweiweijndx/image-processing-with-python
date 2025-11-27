@@ -1,52 +1,63 @@
 # -*- coding: utf-8 -*-
 """
-带误差棒的柱状图。
+Created on Tue Nov 25 15:54:37 2025
+
+@author: renwe
 """
 
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from scipy.stats import ttest_ind
+from scipy import stats
+from statsmodels.formula.api import ols
+from statsmodels.stats.anova import anova_lm
+from statsmodels.stats.multicomp import pairwise_tukeyhsd
+from statannotations.Annotator import Annotator
 
+# ========= Load data =========
+df = pd.read_excel("C:/Users/renwe/Desktop/MFI.xlsx")
 
-## Read files
-df1 = pd.read_csv('C:/Users/renwe/Desktop/wt_mock.csv')
-df2 = pd.read_csv('C:/Users/renwe/Desktop/wt_pit.csv')
-df1 = df1.iloc[:, 1:]
-df2 = df2.iloc[:, 1:]
+# rename first column to Group
+df = df.rename(columns={' ':'Group'})
 
-## Select data from files
-df1_sel = df1[['RawIntDen']]
-df2_sel = df2[['RawIntDen']]
-df1_sel.columns = ['WT_mock']
-df2_sel.columns = ['WT_pit']
+# ========= Summary per group =========
+summary = df.groupby('Group')['Mean'].agg(['mean','std','count'])
+print(summary)
 
-## Joint data into a new df
-df = pd.concat([df1_sel, df2_sel], axis=1)
+## bar plot in seaborn
+plt.figure(figsize=(6,4))
+ax = sns.barplot(data=df, x="Group", y="Mean", errorbar="sd", 
+                 palette="colorblind",alpha=.6, capsize=0.2, errwidth=1.5)
+plt.xticks(rotation=45, ha='right')
 
-## Melt the data for seaborn
-df_melted = df.melt(var_name='Condition', value_name='Value')
-
-# Perform independent two-sample t-test between WT and KO
-t_stat, p_value = ttest_ind(df['WT_mock'], df['WT_pit'], equal_var=False)  # Welch's t-test
-t_stat, p_value
-
-## Plot
-plt.figure(figsize=(3, 4)) ## Adjust if needed
-sns.barplot(data=df_melted, x='Condition', y='Value', ci='sd', capsize=0.1, palette='pastel', errwidth=1.5)
-sns.stripplot(data=df_melted, x='Condition', y='Value', color='black', jitter=True, alpha=0.9, marker='o', size=6)
-
-# Add significance bar
-y_max = max(df.max()) * 1.05
-plt.plot([0, 0, 1, 1], [y_max, y_max*1.02, y_max*1.02, y_max], color='black')
-plt.text(0.5, y_max*1.03, '**', ha='center', va='bottom', fontsize=16)
-
-plt.title('Bar Plot with Error Bars and Data Points')
-plt.ylabel('MFI')
-plt.xlabel('Condition')
+# ---- Add individual data points ----
+sns.stripplot(x="Group", y="Mean", data=df,
+              color='black', facecolors='none', edgecolor='black',
+              linewidth=1.0, size=5, jitter=True, alpha=1.0, marker='o')
+sns.despine(offset=0, trim=False)
 plt.tight_layout()
+plt.savefig("MFI.pdf", bbox_inches="tight")
 
-# Save as PDF
-annotated_output_path = 'D:/plot/barplot_with_significance.pdf'
-plt.savefig(annotated_output_path, format='pdf')
-plt.show()
+## Oneway ANOVA with Tukey
+model = ols('Mean ~ C(Group)', data=df).fit()
+anova_table = anova_lm(model)
+print("\n=== One-way ANOVA ===")
+print(anova_table)
+
+# ===== Tukey HSD Post-hoc =====
+tukey = pairwise_tukeyhsd(endog=df['Mean'],
+                          groups=df['Group'],
+                          alpha=0.05)
+
+print("\n=== Tukey HSD ===")
+print(tukey.summary())
+
+# 生成配对（Tukey 需要所有组间对比）
+groups = df["Group"].unique()
+pairs = [(g1, g2) for i, g1 in enumerate(groups) for g2 in groups[i+1:]]
+
+# 用 statannotations 标注 Tukey 显著性
+#annotator = Annotator(ax, pairs, data=df, x="Group", y="Mean")
+#annotator.configure(test=None, text_format="star", show_test_name=False)
+#annotator.set_pvalues(tukey.pvalues)
+#annotator.annotate()
